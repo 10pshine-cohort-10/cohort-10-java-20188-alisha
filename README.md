@@ -63,7 +63,36 @@ A complete, production-structured Fullstack **Contact Management System** organi
 ## 🚀 Running Locally
 
 ### 1. Database Setup (Microsoft SQL Server)
-Execute `backend/database/sqlserver_schema.sql` in SQL Server Management Studio (SSMS) or `sqlcmd`, and configure credentials in `backend/src/main/resources/application.yml` (or via `DB_HOST`, `DB_USER`, `DB_PASSWORD`).
+Execute `backend/database/sqlserver_schema.sql` in SQL Server Management Studio (SSMS) or `sqlcmd`.
+
+Then set the required environment variables (see below) before starting the backend.
+
+#### 🔐 Environment Variables (Backend)
+
+The backend does **not** contain any hardcoded passwords or secrets. `DB_PASSWORD` and `JWT_SECRET` are **required**, and the application will not start without them.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DB_PASSWORD` | Yes | SQL Server password |
+| `JWT_SECRET` | Yes | JWT signing key (minimum 32 characters) |
+| `DB_HOST` | No | Database host (default: `localhost`) |
+| `DB_PORT` | No | Database port (default: `1433`) |
+| `DB_NAME` | No | Database name (default: `ContactManagementDb`) |
+| `DB_USER` | No | Database user (default: `sa`) |
+| `SERVER_PORT` | No | Backend port (default: `8080`) |
+| `CORS_ALLOWED_ORIGINS` | No | Allowed frontend origins (default: `http://localhost:3000,http://localhost:5173`) |
+
+Example (Windows PowerShell):
+```powershell
+$env:DB_PASSWORD="your_database_password"
+$env:JWT_SECRET="your_random_secret_of_at_least_32_characters"
+```
+
+Example (Linux / macOS):
+```bash
+export DB_PASSWORD="your_database_password"
+export JWT_SECRET="your_random_secret_of_at_least_32_characters"
+```
 
 ### 2. Run Java Spring Boot Backend & Tests
 ```bash
