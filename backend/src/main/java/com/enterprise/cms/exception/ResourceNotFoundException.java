@@ -1,7 +1,0 @@
-package com.enterprise.cms.exception;
-
-public class ResourceNotFoundException extends RuntimeException {
-    public ResourceNotFoundException(String message) {
-        super(message);
-    }
-}

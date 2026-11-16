@@ -1,12 +1,54 @@
 # Contact Management System (Java Spring Boot + React.js)
 
-A complete, production-structured Fullstack **Contact Management System** organized into separate **`frontend/`** and **`backend/`** directories.
+A complete, production-structured Fullstack **Contact Management System** organized into separate **`frontend/`** and **`backend/`** directories. The backend follows a feature-based package layout (`auth`, `user`, `contact`) with shared `common`, `config` and `security` packages.
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```text
+├── backend/                    # Java 25 + Spring Boot 3.5.16 + JPA/Hibernate + SQL Server
+│   ├── database/
+│   │   └── sqlserver_schema.sql
+│   ├── src/
+│   │   ├── main/
+│   │   │   ├── java/com/tenpearls/contactmanagement/
+│   │   │   │   ├── ContactManagementApplication.java
+│   │   │   │   ├── config/         # SecurityConfig
+│   │   │   │   ├── common/
+│   │   │   │   │   ├── exception/  # GlobalExceptionHandler (@RestControllerAdvice) & custom exceptions
+│   │   │   │   │   ├── response/   # ApiErrorResponse
+│   │   │   │   │   ├── audit/
+│   │   │   │   │   └── util/
+│   │   │   │   ├── security/       # JwtTokenProvider, JwtAuthenticationFilter, CustomUserDetailsService
+│   │   │   │   ├── auth/
+│   │   │   │   │   ├── controller/ # AuthController
+│   │   │   │   │   ├── service/    # AuthService, AuthServiceImpl
+│   │   │   │   │   └── dto/        # LoginRequest, RegisterRequest, AuthResponse
+│   │   │   │   ├── user/
+│   │   │   │   │   ├── controller/ # UserController
+│   │   │   │   │   ├── service/    # UserService, UserServiceImpl
+│   │   │   │   │   ├── repository/ # UserRepository (Spring Data JPA)
+│   │   │   │   │   ├── entity/     # User
+│   │   │   │   │   └── dto/        # UserResponse, ChangePasswordRequest, UpdateProfileRequest
+│   │   │   │   └── contact/
+│   │   │   │       ├── controller/ # ContactController
+│   │   │   │       ├── service/    # ContactService, ContactServiceImpl
+│   │   │   │       ├── repository/ # ContactRepository (Spring Data JPA)
+│   │   │   │       ├── entity/     # Contact, ContactEmail, ContactPhone
+│   │   │   │       └── dto/        # ContactRequest
+│   │   │   └── resources/
+│   │   │       ├── application.yml
+│   │   │       └── logback-spring.xml
+│   │   └── test/
+│   │       ├── java/com/tenpearls/contactmanagement/
+│   │       │   ├── auth/           # AuthControllerTest, AuthServiceImplTest
+│   │       │   ├── user/           # UserServiceImplTest
+│   │       │   └── contact/        # ContactControllerTest, ContactServiceImplTest, ContactRepositoryTest
+│   │       └── resources/
+│   │           └── application.yml
+│   └── pom.xml                 # Maven dependencies, JaCoCo, SonarQube plugin
+│
 ├── frontend/                   # React.js + TypeScript + Tailwind CSS SPA
 │   ├── public/                 # Static assets & rounded white-background favicon
 │   ├── src/
@@ -19,38 +61,17 @@ A complete, production-structured Fullstack **Contact Management System** organi
 │   ├── tsconfig.json
 │   └── vite.config.ts          # Includes /api proxy -> http://localhost:8080
 │
-├── backend/                    # Java 17 + Spring Boot 3.3.4 + JPA/Hibernate + SQL Server
-│   ├── database/
-│   │   └── sqlserver_schema.sql
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/com/enterprise/cms/
-│   │   │   │   ├── ContactManagementApplication.java
-│   │   │   │   ├── controller/ # AuthController, UserController, ContactController
-│   │   │   │   ├── service/    # AuthServiceImpl, ContactServiceImpl
-│   │   │   │   ├── repository/ # UserRepository, ContactRepository (Spring Data JPA)
-│   │   │   │   ├── entity/     # User, Contact, ContactEmail, ContactPhone
-│   │   │   │   ├── dto/        # Validated Request/Response DTOs
-│   │   │   │   ├── exception/  # GlobalExceptionHandler (@RestControllerAdvice) & custom exceptions
-│   │   │   │   └── security/   # SecurityConfig, JwtTokenProvider, JwtAuthenticationFilter
-│   │   │   └── resources/
-│   │   │       ├── application.yml
-│   │   │       └── logback-spring.xml
-│   │   └── test/
-│   │       └── java/com/enterprise/cms/
-│   │           ├── controller/ # AuthControllerTest, ContactControllerTest (MockMvc + Mockito)
-│   │           ├── service/    # AuthServiceImplTest, ContactServiceImplTest (JUnit 5 + Mockito)
-│   │           └── repository/ # ContactRepositoryTest (@DataJpaTest)
-│   └── pom.xml                 # Maven dependencies, JaCoCo, SonarQube plugin
-│
+├── .coderabbit.yaml            # Automated code review configuration
+├── .gitignore                  # Single root-level ignore file for backend and frontend
+├── README.md
 └── sonar-project.properties    # SonarQube quality rules for Java & React/TypeScript
 ```
 
 ---
 
-## 🛠️ Technology Stack
+##  Technology Stack
 
-- **Backend**: Java 17, Spring Boot 3.3.4, Spring Web, Spring Data JPA, Hibernate 6, Spring Security + JWT
+- **Backend**: Java 25, Spring Boot 3.5.16, Spring Web, Spring Data JPA, Hibernate 6, Spring Security + JWT
 - **Database**: Microsoft SQL Server (`sqlserver_schema.sql`)
 - **Logging**: SLF4J + Logback (`logback-spring.xml` with console + rolling file appenders)
 - **Testing**: JUnit 5, Mockito, Spring MockMvc, `@DataJpaTest`
@@ -60,14 +81,14 @@ A complete, production-structured Fullstack **Contact Management System** organi
 
 ---
 
-## 🚀 Running Locally
+##  Running Locally
 
 ### 1. Database Setup (Microsoft SQL Server)
 Execute `backend/database/sqlserver_schema.sql` in SQL Server Management Studio (SSMS) or `sqlcmd`.
 
 Then set the required environment variables (see below) before starting the backend.
 
-#### 🔐 Environment Variables (Backend)
+####  Environment Variables (Backend)
 
 The backend does **not** contain any hardcoded passwords or secrets. `DB_PASSWORD` and `JWT_SECRET` are **required**, and the application will not start without them.
 
@@ -116,7 +137,7 @@ To connect the frontend directly to the running Spring Boot API, set `VITE_USE_B
 
 ---
 
-## 🌿 Recommended Git Branching Strategy
+## Recommended Git Branching Strategy
 - `main`: Production-ready releases
 - `develop`: Integration branch for completed features
 - `feature/<ticket-name>`: Isolated feature branches (e.g., `feature/contact-pagination`, `feature/jwt-auth`)

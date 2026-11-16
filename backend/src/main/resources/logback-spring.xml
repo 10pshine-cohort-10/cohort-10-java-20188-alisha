@@ -26,7 +26,7 @@
     </appender>
 
     <!-- Application Loggers -->
-    <logger name="com.enterprise.cms" level="DEBUG" additivity="false">
+    <logger name="com.tenpearls.contactmanagement" level="DEBUG" additivity="false">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>
     </logger>
