@@ -6,6 +6,31 @@ const STORAGE_KEY_CONTACTS = 'cms_contacts_v1';
 const STORAGE_KEY_USER = 'cms_current_user_v1';
 const STORAGE_KEY_REGISTERED_USERS = 'cms_registered_users_v1';
 
+const hashPassword = async (password: string, salt: string): Promise<string> => {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const derived = await crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: encoder.encode(salt),
+      iterations: 100000,
+      hash: 'SHA-256',
+    },
+    key,
+    256
+  );
+  return Array.from(new Uint8Array(derived), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+
+const createSalt = (): string =>
+  Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, '0')).join('');
+
 export interface ContactsResponse {
   contacts: Contact[];
   pagination: PaginationConfig;
@@ -18,6 +43,19 @@ export class ContactStorageService {
   private contacts: Contact[] = [];
   private currentUser: User | null = null;
 
+  private isValidContact(value: unknown): value is Contact {
+    if (!value || typeof value !== 'object') return false;
+    const contact = value as Partial<Contact>;
+    return typeof contact.id === 'string'
+      && typeof contact.userId === 'string'
+      && typeof contact.firstName === 'string'
+      && typeof contact.lastName === 'string'
+      && Array.isArray(contact.emails)
+      && contact.emails.every((entry) => entry && typeof entry.email === 'string')
+      && Array.isArray(contact.phones)
+      && contact.phones.every((entry) => entry && typeof entry.number === 'string');
+  }
+
   constructor() {
     this.init();
   }
@@ -26,7 +64,8 @@ export class ContactStorageService {
     try {
       const savedContacts = localStorage.getItem(STORAGE_KEY_CONTACTS);
       if (savedContacts) {
-        this.contacts = JSON.parse(savedContacts);
+        const parsed = JSON.parse(savedContacts);
+        this.contacts = Array.isArray(parsed) ? parsed.filter((c) => this.isValidContact(c)) : [];
       } else {
         this.contacts = [...INITIAL_CONTACTS];
         this.saveContacts();
@@ -42,18 +81,7 @@ export class ContactStorageService {
 
       const registered = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS);
       if (!registered) {
-        // Seed default credentials: email: alex.wright@apexenterprise.com, password: Password123!
-        localStorage.setItem(
-          STORAGE_KEY_REGISTERED_USERS,
-          JSON.stringify([
-            {
-              id: INITIAL_USER.id,
-              identifier: INITIAL_USER.email,
-              passwordHash: 'Password123!',
-              user: INITIAL_USER,
-            },
-          ])
-        );
+        localStorage.setItem(STORAGE_KEY_REGISTERED_USERS, JSON.stringify([]));
       }
     } catch (e) {
       this.contacts = [...INITIAL_CONTACTS];
@@ -91,11 +119,11 @@ export class ContactStorageService {
     return this.currentUser;
   }
 
-  public login(identifier: string, password: string): { success: boolean; message: string; user?: User } {
+  public async login(identifier: string, password: string): Promise<{ success: boolean; message: string; user?: User }> {
     slf4j.info('c.e.cms.controller.AuthController', `Attempting authentication for identifier: [${identifier}]`);
     try {
       const raw = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS) || '[]';
-      const users: Array<{ id: string; identifier: string; passwordHash: string; user: User }> = JSON.parse(raw);
+      const users: Array<{ id: string; identifier: string; passwordHash: string; salt?: string; user: User }> = JSON.parse(raw);
       
       const cleanIdent = identifier.trim().toLowerCase();
       const found = users.find(
@@ -105,26 +133,14 @@ export class ContactStorageService {
           u.user.phone?.replace(/\D/g, '') === cleanIdent.replace(/\D/g, '')
       );
 
-      // Allow default password "Password123!" for demo convenience or matches registered password
+      // Require the credential stored for the account.
       if (!found) {
-        // If not found in custom registered users, test against initial default
-        if (
-          (cleanIdent === INITIAL_USER.email?.toLowerCase() || cleanIdent === 'alex') &&
-          (password === 'Password123!' || password === 'admin' || password === 'password')
-        ) {
-          this.currentUser = { ...INITIAL_USER, lastLogin: new Date().toISOString() };
-          this.saveCurrentUser();
-          slf4j.info(
-            'c.e.cms.security.JwtTokenProvider',
-            `JWT Bearer token generated for principal [${this.currentUser.email}]. Roles: [ROLE_USER, ROLE_ADMIN]`
-          );
-          return { success: true, message: 'Welcome back, Alexander!', user: this.currentUser };
-        }
         slf4j.warn('c.e.cms.security.AuthenticationProvider', `Bad credentials: identifier not found [${identifier}]`);
         return { success: false, message: 'Invalid email/phone or password. Please verify credentials.' };
       }
 
-      if (found.passwordHash !== password && password !== 'Password123!') {
+      const candidateHash = await hashPassword(password, found.salt || '');
+      if (!found.salt || found.passwordHash !== candidateHash) {
         slf4j.warn(
           'c.e.cms.security.AuthenticationProvider',
           `Authentication failed for [${identifier}]: Bad credentials.`
@@ -149,19 +165,19 @@ export class ContactStorageService {
     }
   }
 
-  public register(data: {
+  public async register(data: {
     fullName: string;
     identifier: string; // email or phone
     password: string;
     company?: string;
-  }): { success: boolean; message: string; user?: User } {
+  }): Promise<{ success: boolean; message: string; user?: User }> {
     slf4j.info('c.e.cms.controller.AuthController', `Processing self-registration request for [${data.identifier}]`);
     try {
       const isEmail = data.identifier.includes('@');
       const cleanIdent = data.identifier.trim().toLowerCase();
 
       const raw = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS) || '[]';
-      const users: Array<{ id: string; identifier: string; passwordHash: string; user: User }> = JSON.parse(raw);
+      const users: Array<{ id: string; identifier: string; passwordHash: string; salt: string; user: User }> = JSON.parse(raw);
 
       // Check duplicates
       const exists = users.some(
@@ -202,10 +218,12 @@ export class ContactStorageService {
         lastLogin: new Date().toISOString(),
       };
 
+      const salt = createSalt();
       users.push({
         id: newUser.id,
         identifier: cleanIdent,
-        passwordHash: data.password,
+        passwordHash: await hashPassword(data.password, salt),
+        salt,
         user: newUser,
       });
 
@@ -250,10 +268,10 @@ export class ContactStorageService {
     }
   }
 
-  public changePassword(
+  public async changePassword(
     currentPass: string,
     newPass: string
-  ): { success: boolean; message: string } {
+  ): Promise<{ success: boolean; message: string }> {
     if (!this.currentUser) {
       slf4j.error('c.e.cms.security.SecurityContextHolder', 'Unauthorized password change attempt: No active session');
       return { success: false, message: 'Unauthorized. Please log in first.' };
@@ -266,19 +284,21 @@ export class ContactStorageService {
 
     try {
       const raw = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS) || '[]';
-      const users: Array<{ id: string; identifier: string; passwordHash: string; user: User }> = JSON.parse(raw);
+      const users: Array<{ id: string; identifier: string; passwordHash: string; salt?: string; user: User }> = JSON.parse(raw);
 
       const userIndex = users.findIndex((u) => u.id === this.currentUser?.id);
       if (userIndex !== -1) {
         const stored = users[userIndex];
-        if (stored.passwordHash !== currentPass && currentPass !== 'Password123!') {
+        if (!stored.salt || stored.passwordHash !== await hashPassword(currentPass, stored.salt)) {
           slf4j.warn(
             'c.e.cms.service.UserServiceImpl',
             `Password verification failed for user [${this.currentUser.id}]: Current password incorrect.`
           );
           return { success: false, message: 'Current password does not match.' };
         }
-        users[userIndex].passwordHash = newPass;
+        const newSalt = createSalt();
+        users[userIndex].passwordHash = await hashPassword(newPass, newSalt);
+        users[userIndex].salt = newSalt;
         localStorage.setItem(STORAGE_KEY_REGISTERED_USERS, JSON.stringify(users));
       }
 
@@ -296,6 +316,11 @@ export class ContactStorageService {
   public updateProfile(updates: Partial<User>): { success: boolean; message: string; user: User } {
     if (!this.currentUser) {
       throw new Error('Not logged in');
+    }
+    const nextEmail = updates.email !== undefined ? updates.email : this.currentUser.email;
+    const nextPhone = updates.phone !== undefined ? updates.phone : this.currentUser.phone;
+    if (!nextEmail && !nextPhone) {
+      return { success: false, message: 'An account must keep at least one email or phone.', user: this.currentUser };
     }
     this.currentUser = {
       ...this.currentUser,
@@ -324,11 +349,12 @@ export class ContactStorageService {
     page: number = 1,
     pageSize: number = 10
   ): ContactsResponse {
-    const totalAll = this.contacts.length;
-    const totalFavorites = this.contacts.filter((c) => c.isFavorite).length;
+    const ownedContacts = this.contacts.filter((c) => c.userId === this.currentUser?.id);
+    const totalAll = ownedContacts.length;
+    const totalFavorites = ownedContacts.filter((c) => c.isFavorite).length;
 
     // Filter
-    let filtered = [...this.contacts];
+    let filtered = [...ownedContacts];
 
     if (filters.searchQuery.trim()) {
       const q = filters.searchQuery.toLowerCase().trim();
@@ -404,7 +430,7 @@ export class ContactStorageService {
   }
 
   public getContactById(id: string): Contact | undefined {
-    const contact = this.contacts.find((c) => c.id === id);
+    const contact = this.contacts.find((c) => c.id === id && c.userId === this.currentUser?.id);
     if (!contact) {
       slf4j.warn(
         'c.e.cms.exception.ResourceNotFoundException',
@@ -444,7 +470,7 @@ export class ContactStorageService {
   }
 
   public updateContact(id: string, updates: Partial<Omit<Contact, 'id' | 'userId' | 'createdAt'>>): Contact {
-    const index = this.contacts.findIndex((c) => c.id === id);
+    const index = this.contacts.findIndex((c) => c.id === id && c.userId === this.currentUser?.id);
     if (index === -1) {
       slf4j.error(
         'c.e.cms.exception.ResourceNotFoundException',
@@ -471,7 +497,7 @@ export class ContactStorageService {
   }
 
   public toggleFavorite(id: string): boolean {
-    const contact = this.contacts.find((c) => c.id === id);
+    const contact = this.contacts.find((c) => c.id === id && c.userId === this.currentUser?.id);
     if (!contact) return false;
     contact.isFavorite = !contact.isFavorite;
     contact.updatedAt = new Date().toISOString();
@@ -484,7 +510,7 @@ export class ContactStorageService {
   }
 
   public deleteContact(id: string): boolean {
-    const target = this.contacts.find((c) => c.id === id);
+    const target = this.contacts.find((c) => c.id === id && c.userId === this.currentUser?.id);
     if (!target) {
       slf4j.warn('c.e.cms.exception.ResourceNotFoundException', `Delete failed: Contact [${id}] not found.`);
       return false;
@@ -502,9 +528,11 @@ export class ContactStorageService {
   }
 
   public bulkDelete(ids: string[]): number {
-    const initialCount = this.contacts.length;
-    this.contacts = this.contacts.filter((c) => !ids.includes(c.id));
-    const deletedCount = initialCount - this.contacts.length;
+    const initialCount = this.contacts.filter((c) => c.userId === this.currentUser?.id).length;
+    this.contacts = this.contacts.filter((c) =>
+      c.userId !== this.currentUser?.id || !ids.includes(c.id)
+    );
+    const deletedCount = initialCount - this.contacts.filter((c) => c.userId === this.currentUser?.id).length;
     this.saveContacts();
 
     slf4j.info(
@@ -541,10 +569,14 @@ export class ContactStorageService {
         title: raw.title || '',
         company: raw.company || '',
         department: raw.department || '',
-        emails: raw.emails && raw.emails.length > 0 ? raw.emails : [
+        emails: Array.isArray(raw.emails) && raw.emails.some((e) => e && typeof e.email === 'string')
+          ? raw.emails.filter((e) => e && typeof e.email === 'string')
+          : [
           { id: `em_${Math.random()}`, email: 'unspecified@example.com', label: 'work', isPrimary: true }
         ],
-        phones: raw.phones && raw.phones.length > 0 ? raw.phones : [
+        phones: Array.isArray(raw.phones) && raw.phones.some((p) => p && typeof p.number === 'string')
+          ? raw.phones.filter((p) => p && typeof p.number === 'string')
+          : [
           { id: `ph_${Math.random()}`, number: '+1 (555) 000-0000', label: 'work', isPrimary: true }
         ],
         address: raw.address || '',

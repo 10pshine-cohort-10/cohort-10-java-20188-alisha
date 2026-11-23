@@ -40,11 +40,15 @@ export const ContactDetailModal: React.FC<ContactDetailModalProps> = ({
 
   if (!isOpen || !contact) return null;
 
-  const handleCopy = (text: string, id: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = async (text: string, id: string, label: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopiedId(id);
+      showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      showToast('error', 'Copy Failed', 'Clipboard access is unavailable in this context.');
+    }
   };
 
   const handleDownloadVCard = () => {

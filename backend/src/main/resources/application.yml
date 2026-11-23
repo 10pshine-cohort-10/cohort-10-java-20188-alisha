@@ -3,7 +3,7 @@ spring:
     name: contact-management-system
 
   datasource:
-    url: jdbc:sqlserver://${DB_HOST:localhost}:${DB_PORT:1433};databaseName=${DB_NAME:ContactManagementDb};encrypt=true;trustServerCertificate=true;
+    url: jdbc:sqlserver://${DB_HOST:localhost}:${DB_PORT:1433};databaseName=${DB_NAME:ContactManagementDb};encrypt=true;trustServerCertificate=${DB_TRUST_SERVER_CERTIFICATE:false};
     username: ${DB_USER:sa}
     password: ${DB_PASSWORD}
     driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver

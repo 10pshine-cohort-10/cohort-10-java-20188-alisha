@@ -33,7 +33,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
   const strengthLabels = ['Weak', 'Fair', 'Good', 'Strong'];
   const strengthColors = ['bg-rose-500', 'bg-amber-500', 'bg-sky-500', 'bg-emerald-500'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
@@ -61,7 +61,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
     }
 
     setIsSubmitting(true);
-    const result = storage.changePassword(currentPassword, newPassword);
+    const result = await storage.changePassword(currentPassword, newPassword);
 
     if (result.success) {
       showToast('success', 'Password Updated', 'Your security credentials have been refreshed.');
@@ -140,7 +140,6 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
                 <AlertCircle className="w-3.5 h-3.5" /> {errors.currentPassword}
               </p>
             )}
-            <p className="text-[11px] text-slate-400 mt-1">Default demo password: Password123!</p>
           </div>
 
           {/* New Password */}

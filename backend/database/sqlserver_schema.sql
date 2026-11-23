@@ -12,12 +12,7 @@ GO
 USE ContactManagementDb;
 GO
 
-IF OBJECT_ID('dbo.contact_phones', 'U') IS NOT NULL DROP TABLE dbo.contact_phones;
-IF OBJECT_ID('dbo.contact_emails', 'U') IS NOT NULL DROP TABLE dbo.contact_emails;
-IF OBJECT_ID('dbo.contacts', 'U') IS NOT NULL DROP TABLE dbo.contacts;
-IF OBJECT_ID('dbo.users', 'U') IS NOT NULL DROP TABLE dbo.users;
-GO
-
+IF OBJECT_ID('dbo.users', 'U') IS NULL
 CREATE TABLE dbo.users (
     id NVARCHAR(64) NOT NULL PRIMARY KEY,
     full_name NVARCHAR(120) NOT NULL,
@@ -31,10 +26,13 @@ CREATE TABLE dbo.users (
 );
 GO
 
-CREATE UNIQUE NONCLUSTERED INDEX UX_Users_Email ON dbo.users(email) WHERE email IS NOT NULL;
-CREATE UNIQUE NONCLUSTERED INDEX UX_Users_Phone ON dbo.users(phone) WHERE phone IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Users_Email' AND object_id = OBJECT_ID('dbo.users'))
+    CREATE UNIQUE NONCLUSTERED INDEX UX_Users_Email ON dbo.users(email) WHERE email IS NOT NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_Users_Phone' AND object_id = OBJECT_ID('dbo.users'))
+    CREATE UNIQUE NONCLUSTERED INDEX UX_Users_Phone ON dbo.users(phone) WHERE phone IS NOT NULL;
 GO
 
+IF OBJECT_ID('dbo.contacts', 'U') IS NULL
 CREATE TABLE dbo.contacts (
     id NVARCHAR(64) NOT NULL PRIMARY KEY,
     user_id NVARCHAR(64) NOT NULL,
@@ -57,9 +55,11 @@ CREATE TABLE dbo.contacts (
 );
 GO
 
-CREATE NONCLUSTERED INDEX IX_Contacts_User_Name ON dbo.contacts(user_id, last_name, first_name);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Contacts_User_Name' AND object_id = OBJECT_ID('dbo.contacts'))
+    CREATE NONCLUSTERED INDEX IX_Contacts_User_Name ON dbo.contacts(user_id, last_name, first_name);
 GO
 
+IF OBJECT_ID('dbo.contact_emails', 'U') IS NULL
 CREATE TABLE dbo.contact_emails (
     id NVARCHAR(64) NOT NULL PRIMARY KEY,
     contact_id NVARCHAR(64) NOT NULL,
@@ -70,9 +70,11 @@ CREATE TABLE dbo.contact_emails (
 );
 GO
 
-CREATE NONCLUSTERED INDEX IX_ContactEmails_ContactId ON dbo.contact_emails(contact_id);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ContactEmails_ContactId' AND object_id = OBJECT_ID('dbo.contact_emails'))
+    CREATE NONCLUSTERED INDEX IX_ContactEmails_ContactId ON dbo.contact_emails(contact_id);
 GO
 
+IF OBJECT_ID('dbo.contact_phones', 'U') IS NULL
 CREATE TABLE dbo.contact_phones (
     id NVARCHAR(64) NOT NULL PRIMARY KEY,
     contact_id NVARCHAR(64) NOT NULL,
@@ -83,5 +85,6 @@ CREATE TABLE dbo.contact_phones (
 );
 GO
 
-CREATE NONCLUSTERED INDEX IX_ContactPhones_ContactId ON dbo.contact_phones(contact_id);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_ContactPhones_ContactId' AND object_id = OBJECT_ID('dbo.contact_phones'))
+    CREATE NONCLUSTERED INDEX IX_ContactPhones_ContactId ON dbo.contact_phones(contact_id);
 GO

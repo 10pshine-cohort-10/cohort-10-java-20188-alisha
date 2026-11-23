@@ -136,12 +136,24 @@ public class ContactServiceImpl implements ContactService {
         contact.setAvatarColor(request.getAvatarColor() != null ? request.getAvatarColor() : "indigo");
         contact.setNotes(request.getNotes() != null ? request.getNotes().trim() : null);
 
+        java.util.Set<String> ownedEmailIds = new java.util.HashSet<>();
+        for (ContactEmail email : contact.getEmails()) {
+            ownedEmailIds.add(email.getId());
+        }
+        java.util.Set<String> ownedPhoneIds = new java.util.HashSet<>();
+        for (ContactPhone phone : contact.getPhones()) {
+            ownedPhoneIds.add(phone.getId());
+        }
+
         contact.clearEmails();
         if (request.getEmails() != null) {
             for (ContactRequest.EmailItem item : request.getEmails()) {
                 String emailId = item.getId() != null && !item.getId().isBlank()
                         ? item.getId()
                         : "em_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+                if (!ownedEmailIds.contains(emailId)) {
+                    emailId = "em_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+                }
                 contact.addEmail(new ContactEmail(emailId, item.getEmail().trim(), item.getLabel(), item.getIsPrimary()));
             }
         }
@@ -152,6 +164,9 @@ public class ContactServiceImpl implements ContactService {
                 String phoneId = item.getId() != null && !item.getId().isBlank()
                         ? item.getId()
                         : "ph_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+                if (!ownedPhoneIds.contains(phoneId)) {
+                    phoneId = "ph_" + UUID.randomUUID().toString().replace("-", "").substring(0, 10);
+                }
                 contact.addPhone(new ContactPhone(phoneId, item.getNumber().trim(), item.getLabel(), item.getIsPrimary()));
             }
         }

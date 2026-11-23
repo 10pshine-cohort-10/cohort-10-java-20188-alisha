@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 
 @Entity
 @Table(name = "users")
+@org.hibernate.annotations.DynamicUpdate
 public class User {
 
     @Id

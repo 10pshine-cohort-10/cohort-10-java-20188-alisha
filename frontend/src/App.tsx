@@ -119,22 +119,25 @@ function ContactAppContent() {
   const handleConfirmDelete = () => {
     setIsDeleting(true);
     setTimeout(() => {
-      if (bulkDeleteIds.length > 0) {
-        const count = storage.bulkDelete(bulkDeleteIds);
-        setBulkDeleteIds([]);
-        setIsDeleteModalOpen(false);
-        refreshContacts();
-        showToast('success', 'Contacts Deleted', `Successfully purged ${count} contacts from database.`);
-      } else if (targetContact) {
-        const name = `${targetContact.firstName} ${targetContact.lastName}`;
-        storage.deleteContact(targetContact.id);
-        setIsDeleteModalOpen(false);
-        setIsDetailModalOpen(false);
-        setTargetContact(null);
-        refreshContacts();
-        showToast('success', 'Contact Deleted', `${name} has been removed.`);
+      try {
+        if (bulkDeleteIds.length > 0) {
+          const count = storage.bulkDelete(bulkDeleteIds);
+          setBulkDeleteIds([]);
+          setIsDeleteModalOpen(false);
+          refreshContacts();
+          showToast('success', 'Contacts Deleted', `Successfully purged ${count} contacts from database.`);
+        } else if (targetContact) {
+          const name = `${targetContact.firstName} ${targetContact.lastName}`;
+          storage.deleteContact(targetContact.id);
+          setIsDeleteModalOpen(false);
+          setIsDetailModalOpen(false);
+          setTargetContact(null);
+          refreshContacts();
+          showToast('success', 'Contact Deleted', `${name} has been removed.`);
+        }
+      } finally {
+        setIsDeleting(false);
       }
-      setIsDeleting(false);
     }, 200);
   };
 

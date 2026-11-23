@@ -40,7 +40,13 @@ public class UserServiceImpl implements UserService {
     public UserResponse updateProfile(String userId, UpdateProfileRequest request) {
         User user = findUser(userId, "User profile not found for ID: ");
         user.setFullName(request.getFullName().trim());
-        user.setPhone(request.getPhone() != null && !request.getPhone().isBlank() ? request.getPhone().trim() : null);
+        String phone = request.getPhone() != null && !request.getPhone().isBlank()
+                ? request.getPhone().trim()
+                : null;
+        if (phone == null && user.getEmail() == null) {
+            throw new IllegalArgumentException("An account must keep at least one login identifier (email or phone).");
+        }
+        user.setPhone(phone);
         user.setCompany(request.getCompany() != null && !request.getCompany().isBlank() ? request.getCompany().trim() : null);
 
         User updated = userRepository.save(user);

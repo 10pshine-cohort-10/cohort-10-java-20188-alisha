@@ -51,7 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
@@ -68,7 +68,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setIsSubmitting(true);
-    const res = storage.login(loginIdentifier, loginPassword);
+    const res = await storage.login(loginIdentifier, loginPassword);
     setIsSubmitting(false);
 
     if (res.success && res.user) {
@@ -80,7 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: { [key: string]: string } = {};
 
@@ -119,7 +119,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsSubmitting(true);
     const identifier = regType === 'email' ? regEmail.trim() : regPhone.trim();
-    const res = storage.register({
+    const res = await storage.register({
       fullName: regFullName.trim(),
       identifier,
       password: regPassword,
@@ -134,12 +134,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setErrors({ form: res.message });
       showToast('error', 'Registration Failed', res.message);
     }
-  };
-
-  const fillDemoAccount = () => {
-    setLoginIdentifier('alex.wright@apexenterprise.com');
-    setLoginPassword('Password123!');
-    setErrors({});
   };
 
   return (
@@ -227,13 +221,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-xs font-medium text-slate-700">Password</label>
-                  <button
-                    type="button"
-                    onClick={fillDemoAccount}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium hover:underline"
-                  >
-                    Use Demo Credentials
-                  </button>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
@@ -272,7 +259,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   />
                   <span>Remember this device</span>
                 </label>
-                <span className="text-slate-400">Demo pwd: Password123!</span>
               </div>
 
               <button

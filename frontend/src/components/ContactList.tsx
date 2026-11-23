@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Contact, SortConfig, FilterConfig, PaginationConfig } from '../types';
 import { storage } from '../services/storage';
+import { INITIAL_CONTACTS } from '../data/mockContacts';
 import { useToast } from './Toast';
 
 interface ContactListProps {
@@ -96,11 +97,15 @@ export const ContactList: React.FC<ContactListProps> = ({
     );
   };
 
-  const handleCopyText = (text: string, id: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopyText = async (text: string, id: string, label: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      setCopiedId(id);
+      showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      showToast('error', 'Copy Failed', 'Clipboard access is unavailable in this context.');
+    }
   };
 
   // Export functions
@@ -310,9 +315,10 @@ export const ContactList: React.FC<ContactListProps> = ({
           {/* Reset Demo Data */}
           <button
             onClick={() => {
+              if (!window.confirm(`Reset the directory to ${INITIAL_CONTACTS.length} default contacts? This replaces current contact data.`)) return;
               storage.resetToDefaults();
               onRefresh();
-              showToast('info', 'Directory Reset', 'Restored 14 default enterprise contacts.');
+              showToast('info', 'Directory Reset', `Restored ${INITIAL_CONTACTS.length} default enterprise contacts.`);
             }}
             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors border border-slate-200"
             title="Reset directory to standard sample dataset"
@@ -534,10 +540,10 @@ export const ContactList: React.FC<ContactListProps> = ({
                       {/* Title & Company */}
                       <td className="py-3 px-3 hidden md:table-cell">
                         <div className="leading-tight">
-                          <span className="font-medium text-slate-800 block truncate max-w-[200px]">
+                          <span className="font-medium text-slate-800 block truncate max-w-50">
                             {contact.title || '—'}
                           </span>
-                          <span className="text-[11px] text-slate-500 block truncate max-w-[200px]">
+                          <span className="text-[11px] text-slate-500 block truncate max-w-50">
                             {contact.company || '—'}
                           </span>
                         </div>
@@ -547,7 +553,7 @@ export const ContactList: React.FC<ContactListProps> = ({
                       <td className="py-3 px-3">
                         {primaryEmail ? (
                           <div className="flex items-center gap-1.5 group/email">
-                            <span className="text-slate-700 font-medium truncate max-w-[170px]">
+                            <span className="text-slate-700 font-medium truncate max-w-42.5">
                               {primaryEmail.email}
                             </span>
                             {/* Unboxed label as per design rules */}
@@ -584,7 +590,7 @@ export const ContactList: React.FC<ContactListProps> = ({
                       <td className="py-3 px-3 hidden sm:table-cell">
                         {primaryPhone ? (
                           <div className="flex items-center gap-1.5 group/phone">
-                            <span className="font-mono text-slate-700 truncate max-w-[150px]">
+                            <span className="font-mono text-slate-700 truncate max-w-37.5">
                               {primaryPhone.number}
                             </span>
                             <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
