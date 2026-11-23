@@ -1,10 +1,55 @@
-import { Contact, User, SortConfig, FilterConfig, PaginationConfig } from '../types';
+import { Contact, EmailLabel, PhoneLabel, User, SortConfig, FilterConfig, PaginationConfig } from '../types';
 import { INITIAL_CONTACTS, INITIAL_USER } from '../data/mockContacts';
 import { slf4j } from './logger';
+import { isBackendApiEnabled } from './api';
 
 const STORAGE_KEY_CONTACTS = 'cms_contacts_v1';
 const STORAGE_KEY_USER = 'cms_current_user_v1';
 const STORAGE_KEY_REGISTERED_USERS = 'cms_registered_users_v1';
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isEmailLabel = (value: unknown): value is EmailLabel =>
+  value === 'work' || value === 'personal' || value === 'other';
+
+const isPhoneLabel = (value: unknown): value is PhoneLabel =>
+  value === 'work' || value === 'mobile' || value === 'home'
+  || value === 'personnel' || value === 'other';
+
+const isImportableEmail = (
+  value: unknown
+): value is Record<string, unknown> & { email: string; label: EmailLabel } =>
+  isRecord(value) && typeof value.email === 'string' && isEmailLabel(value.label);
+
+const isImportablePhone = (
+  value: unknown
+): value is Record<string, unknown> & { number: string; label: PhoneLabel } =>
+  isRecord(value) && typeof value.number === 'string' && isPhoneLabel(value.label);
+
+const isEmailEntry = (value: unknown): value is Contact['emails'][number] =>
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.email === 'string'
+  && isEmailLabel(value.label)
+  && (value.isPrimary === undefined || typeof value.isPrimary === 'boolean');
+
+const isPhoneEntry = (value: unknown): value is Contact['phones'][number] =>
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.number === 'string'
+  && isPhoneLabel(value.label)
+  && (value.isPrimary === undefined || typeof value.isPrimary === 'boolean');
+
+const isValidContact = (value: unknown): value is Contact =>
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.userId === 'string'
+  && typeof value.firstName === 'string'
+  && typeof value.lastName === 'string'
+  && Array.isArray(value.emails)
+  && value.emails.every(isEmailEntry)
+  && Array.isArray(value.phones)
+  && value.phones.every(isPhoneEntry);
 
 const hashPassword = async (password: string, salt: string): Promise<string> => {
   const encoder = new TextEncoder();
@@ -43,21 +88,8 @@ export class ContactStorageService {
   private contacts: Contact[] = [];
   private currentUser: User | null = null;
 
-  private isValidContact(value: unknown): value is Contact {
-    if (!value || typeof value !== 'object') return false;
-    const contact = value as Partial<Contact>;
-    return typeof contact.id === 'string'
-      && typeof contact.userId === 'string'
-      && typeof contact.firstName === 'string'
-      && typeof contact.lastName === 'string'
-      && Array.isArray(contact.emails)
-      && contact.emails.every((entry) => entry && typeof entry.email === 'string')
-      && Array.isArray(contact.phones)
-      && contact.phones.every((entry) => entry && typeof entry.number === 'string');
-  }
-
   constructor() {
-    this.init();
+    if (!isBackendApiEnabled()) this.init();
   }
 
   private init() {
@@ -65,9 +97,9 @@ export class ContactStorageService {
       const savedContacts = localStorage.getItem(STORAGE_KEY_CONTACTS);
       if (savedContacts) {
         const parsed = JSON.parse(savedContacts);
-        this.contacts = Array.isArray(parsed) ? parsed.filter((c) => this.isValidContact(c)) : [];
+        this.contacts = Array.isArray(parsed) ? parsed.filter(isValidContact) : [];
       } else {
-        this.contacts = [...INITIAL_CONTACTS];
+        this.contacts = this.copyInitialContacts(INITIAL_USER.id);
         this.saveContacts();
       }
 
@@ -84,7 +116,7 @@ export class ContactStorageService {
         localStorage.setItem(STORAGE_KEY_REGISTERED_USERS, JSON.stringify([]));
       }
     } catch (e) {
-      this.contacts = [...INITIAL_CONTACTS];
+      this.contacts = this.copyInitialContacts(INITIAL_USER.id);
       this.currentUser = { ...INITIAL_USER };
       slf4j.error(
         'c.e.cms.repository.ContactRepository',
@@ -92,6 +124,15 @@ export class ContactStorageService {
         String(e)
       );
     }
+  }
+
+  private copyInitialContacts(userId: string): Contact[] {
+    return INITIAL_CONTACTS.map((contact) => ({
+      ...contact,
+      userId,
+      emails: contact.emails.map((email) => ({ ...email })),
+      phones: contact.phones.map((phone) => ({ ...phone })),
+    }));
   }
 
   private saveContacts() {
@@ -120,7 +161,7 @@ export class ContactStorageService {
   }
 
   public async login(identifier: string, password: string): Promise<{ success: boolean; message: string; user?: User }> {
-    slf4j.info('c.e.cms.controller.AuthController', `Attempting authentication for identifier: [${identifier}]`);
+    slf4j.info('c.e.cms.controller.AuthController', 'Attempting authentication');
     try {
       const raw = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS) || '[]';
       const users: Array<{ id: string; identifier: string; passwordHash: string; salt?: string; user: User }> = JSON.parse(raw);
@@ -135,7 +176,7 @@ export class ContactStorageService {
 
       // Require the credential stored for the account.
       if (!found) {
-        slf4j.warn('c.e.cms.security.AuthenticationProvider', `Bad credentials: identifier not found [${identifier}]`);
+        slf4j.warn('c.e.cms.security.AuthenticationProvider', 'Bad credentials: identifier not found');
         return { success: false, message: 'Invalid email/phone or password. Please verify credentials.' };
       }
 
@@ -143,7 +184,7 @@ export class ContactStorageService {
       if (!found.salt || found.passwordHash !== candidateHash) {
         slf4j.warn(
           'c.e.cms.security.AuthenticationProvider',
-          `Authentication failed for [${identifier}]: Bad credentials.`
+          'Authentication failed: bad credentials.'
         );
         return { success: false, message: 'Incorrect password. Please try again.' };
       }
@@ -155,8 +196,8 @@ export class ContactStorageService {
       this.currentUser = updatedUser;
       this.saveCurrentUser();
       slf4j.info(
-        'c.e.cms.security.JwtTokenProvider',
-        `JWT token issued for user [${updatedUser.id} - ${updatedUser.fullName}]. Session active.`
+        'c.e.cms.security.UserSessionManager',
+        `Session started for user [${updatedUser.id}].`
       );
       return { success: true, message: `Welcome back, ${updatedUser.fullName}!`, user: updatedUser };
     } catch (err) {
@@ -171,7 +212,7 @@ export class ContactStorageService {
     password: string;
     company?: string;
   }): Promise<{ success: boolean; message: string; user?: User }> {
-    slf4j.info('c.e.cms.controller.AuthController', `Processing self-registration request for [${data.identifier}]`);
+    slf4j.info('c.e.cms.controller.AuthController', 'Processing self-registration request');
     try {
       const isEmail = data.identifier.includes('@');
       const cleanIdent = data.identifier.trim().toLowerCase();
@@ -190,7 +231,7 @@ export class ContactStorageService {
       if (exists) {
         slf4j.warn(
           'c.e.cms.exception.DuplicateResourceException',
-          `Registration conflict: An account with [${data.identifier}] already exists.`
+          'Registration conflict: identifier already exists.'
         );
         return {
           success: false,
@@ -254,7 +295,7 @@ export class ContactStorageService {
 
       slf4j.info(
         'c.e.cms.service.UserServiceImpl',
-        `User successfully registered: ID [${newUser.id}], Principal [${data.identifier}]. Default contacts seeded.`
+        `User successfully registered: ID [${newUser.id}]. Default contacts seeded.`
       );
 
       return {
@@ -322,10 +363,27 @@ export class ContactStorageService {
     if (!nextEmail && !nextPhone) {
       return { success: false, message: 'An account must keep at least one email or phone.', user: this.currentUser };
     }
-    this.currentUser = {
+    const updatedUser = {
       ...this.currentUser,
       ...updates,
     };
+    try {
+      const rawUsers = localStorage.getItem(STORAGE_KEY_REGISTERED_USERS) || '[]';
+      const parsedUsers: unknown = JSON.parse(rawUsers);
+      if (Array.isArray(parsedUsers)) {
+        const users = parsedUsers.filter(isRecord);
+        const userRecord = users.find((entry) => entry.id === updatedUser.id);
+        if (userRecord && isRecord(userRecord.user)) {
+          userRecord.user = updatedUser;
+          userRecord.identifier = (updatedUser.email || updatedUser.phone || '').trim().toLowerCase();
+          localStorage.setItem(STORAGE_KEY_REGISTERED_USERS, JSON.stringify(users));
+        }
+      }
+    } catch (error) {
+      slf4j.error('c.e.cms.service.UserServiceImpl', 'Failed to persist registered profile changes', String(error));
+      return { success: false, message: 'Could not persist user profile changes.', user: this.currentUser };
+    }
+    this.currentUser = updatedUser;
     this.saveCurrentUser();
     slf4j.info(
       'c.e.cms.service.UserServiceImpl',
@@ -335,10 +393,10 @@ export class ContactStorageService {
   }
 
   public logout() {
-    const userEmail = this.currentUser?.email || this.currentUser?.phone || 'anonymous';
+    const userId = this.currentUser?.id || 'anonymous';
     this.currentUser = null;
     this.saveCurrentUser();
-    slf4j.info('c.e.cms.security.SecurityContextHolder', `User session invalidated for [${userEmail}]. SecurityContext cleared.`);
+    slf4j.info('c.e.cms.security.SecurityContextHolder', `User session invalidated for [${userId}].`);
   }
 
   // --- Contact CRUD & Query Operations ---
@@ -445,6 +503,17 @@ export class ContactStorageService {
     return contact;
   }
 
+  public getContactsByIds(ids: string[]): Contact[] {
+    const selectedIds = new Set(ids);
+    return this.contacts.filter((contact) =>
+      contact.userId === this.currentUser?.id && selectedIds.has(contact.id)
+    );
+  }
+
+  public getAllContacts(): Contact[] {
+    return this.contacts.filter((contact) => contact.userId === this.currentUser?.id);
+  }
+
   public createContact(data: Omit<Contact, 'id' | 'userId' | 'createdAt' | 'updatedAt'>): Contact {
     const colors = ['indigo', 'emerald', 'amber', 'rose', 'cyan', 'purple', 'teal', 'blue', 'slate'];
     const randomColor = colors[Math.floor(Math.random() * colors.length)];
@@ -497,10 +566,14 @@ export class ContactStorageService {
   }
 
   public toggleFavorite(id: string): boolean {
-    const contact = this.contacts.find((c) => c.id === id && c.userId === this.currentUser?.id);
-    if (!contact) return false;
-    contact.isFavorite = !contact.isFavorite;
-    contact.updatedAt = new Date().toISOString();
+    const index = this.contacts.findIndex((c) => c.id === id && c.userId === this.currentUser?.id);
+    if (index === -1) return false;
+    const contact = {
+      ...this.contacts[index],
+      isFavorite: !this.contacts[index].isFavorite,
+      updatedAt: new Date().toISOString(),
+    };
+    this.contacts = this.contacts.map((entry, entryIndex) => entryIndex === index ? contact : entry);
     this.saveContacts();
     slf4j.debug(
       'c.e.cms.service.ContactServiceImpl',
@@ -544,10 +617,8 @@ export class ContactStorageService {
   }
 
   public resetToDefaults() {
-    this.contacts = [...INITIAL_CONTACTS];
-    this.currentUser = { ...INITIAL_USER };
+    this.contacts = this.copyInitialContacts(this.currentUser?.id || INITIAL_USER.id);
     this.saveContacts();
-    this.saveCurrentUser();
     slf4j.info(
       'c.e.cms.repository.DatabaseSeeder',
       `Database reset to default enterprise sample dataset (${INITIAL_CONTACTS.length} records).`
@@ -569,16 +640,8 @@ export class ContactStorageService {
         title: raw.title || '',
         company: raw.company || '',
         department: raw.department || '',
-        emails: Array.isArray(raw.emails) && raw.emails.some((e) => e && typeof e.email === 'string')
-          ? raw.emails.filter((e) => e && typeof e.email === 'string')
-          : [
-          { id: `em_${Math.random()}`, email: 'unspecified@example.com', label: 'work', isPrimary: true }
-        ],
-        phones: Array.isArray(raw.phones) && raw.phones.some((p) => p && typeof p.number === 'string')
-          ? raw.phones.filter((p) => p && typeof p.number === 'string')
-          : [
-          { id: `ph_${Math.random()}`, number: '+1 (555) 000-0000', label: 'work', isPrimary: true }
-        ],
+        emails: this.importEmails(raw.emails),
+        phones: this.importPhones(raw.phones),
         address: raw.address || '',
         city: raw.city || '',
         state: raw.state || '',
@@ -601,6 +664,32 @@ export class ContactStorageService {
       `Batch import completed successfully. Imported ${imported} new contacts into persistence layer.`
     );
     return imported;
+  }
+
+  private importEmails(value: unknown): Contact['emails'] {
+    const entries = Array.isArray(value) ? value.filter(isImportableEmail) : [];
+    if (entries.length === 0) {
+      return [{ id: `em_${Math.random()}`, email: 'unspecified@example.com', label: 'work', isPrimary: true }];
+    }
+    return entries.map((entry, index) => ({
+      id: typeof entry.id === 'string' && entry.id ? entry.id : `em_${Date.now()}_${index}`,
+      email: entry.email,
+      label: entry.label,
+      isPrimary: typeof entry.isPrimary === 'boolean' ? entry.isPrimary : false,
+    }));
+  }
+
+  private importPhones(value: unknown): Contact['phones'] {
+    const entries = Array.isArray(value) ? value.filter(isImportablePhone) : [];
+    if (entries.length === 0) {
+      return [{ id: `ph_${Math.random()}`, number: '+1 (555) 000-0000', label: 'work', isPrimary: true }];
+    }
+    return entries.map((entry, index) => ({
+      id: typeof entry.id === 'string' && entry.id ? entry.id : `ph_${Date.now()}_${index}`,
+      number: entry.number,
+      label: entry.label,
+      isPrimary: typeof entry.isPrimary === 'boolean' ? entry.isPrimary : false,
+    }));
   }
 
   public exportToCSV(contactsToExport: Contact[]): string {

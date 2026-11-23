@@ -32,7 +32,7 @@ class Slf4jLoggerService {
 
   private persist() {
     try {
-      localStorage.setItem('cms_slf4j_logs', JSON.stringify(this.logs.slice(-150)));
+      localStorage.setItem('cms_slf4j_logs', JSON.stringify(this.logs.slice(0, 150)));
     } catch {
       // ignore
     }

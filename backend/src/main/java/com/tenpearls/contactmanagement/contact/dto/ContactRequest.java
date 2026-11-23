@@ -3,41 +3,57 @@ package com.tenpearls.contactmanagement.contact.dto;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ContactRequest {
 
     @NotBlank(message = "First name is required")
+    @Size(max = 100, message = "First name must be at most 100 characters")
     private String firstName;
 
     @NotBlank(message = "Last name is required")
+    @Size(max = 100, message = "Last name must be at most 100 characters")
     private String lastName;
 
+    @Size(max = 150)
     private String title;
+    @Size(max = 150)
     private String company;
+    @Size(max = 100)
     private String department;
+    @Size(max = 255)
     private String address;
+    @Size(max = 100)
     private String city;
+    @Size(max = 100)
     private String state;
+    @Size(max = 100)
     private String country;
+    @Size(max = 50)
     private String category;
     private Boolean isFavorite;
+    @Size(max = 30)
     private String avatarColor;
     private String notes;
 
-    @Valid
-    private List<EmailItem> emails = new ArrayList<>();
+    private List<@NotNull @Valid EmailItem> emails = new ArrayList<>();
 
-    @Valid
-    private List<PhoneItem> phones = new ArrayList<>();
+    private List<@NotNull @Valid PhoneItem> phones = new ArrayList<>();
 
     public static class EmailItem {
+        @Size(max = 64)
         private String id;
         @NotBlank(message = "Email value is required")
         @Email(message = "Invalid email format")
+        @Size(max = 255)
         private String email;
         @NotBlank(message = "Email label is required")
+        @Size(max = 30)
+        @Pattern(regexp = "work|personal|other", message = "Email label must be work, personal, or other")
         private String label;
         private Boolean isPrimary;
 
@@ -55,10 +71,14 @@ public class ContactRequest {
     }
 
     public static class PhoneItem {
+        @Size(max = 64)
         private String id;
         @NotBlank(message = "Phone number is required")
+        @Size(max = 60)
         private String number;
         @NotBlank(message = "Phone label is required")
+        @Size(max = 30)
+        @Pattern(regexp = "work|mobile|home|personnel|other", message = "Phone label is not supported")
         private String label;
         private Boolean isPrimary;
 

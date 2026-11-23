@@ -42,7 +42,8 @@ export const ContactDetailModal: React.FC<ContactDetailModalProps> = ({
 
   const handleCopy = async (text: string, id: string, label: string) => {
     try {
-      await navigator.clipboard?.writeText(text);
+      if (!navigator.clipboard) throw new Error('Clipboard API is unavailable.');
+      await navigator.clipboard.writeText(text);
       setCopiedId(id);
       showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
       setTimeout(() => setCopiedId(null), 2000);

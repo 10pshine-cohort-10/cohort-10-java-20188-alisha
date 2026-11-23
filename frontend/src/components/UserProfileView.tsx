@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { User } from '../types';
 import { storage } from '../services/storage';
+import { backendApi, isBackendApiEnabled } from '../services/api';
 import { useToast } from './Toast';
 
 interface UserProfileViewProps {
@@ -35,7 +36,7 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
   const [company, setCompany] = useState(user.company || '');
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) {
       showToast('error', 'Name Required', 'User full name cannot be blank.');
@@ -44,18 +45,30 @@ export const UserProfileView: React.FC<UserProfileViewProps> = ({
 
     setIsSaving(true);
     try {
-      const res = storage.updateProfile({
+      const payload = {
         fullName: fullName.trim(),
         phone: phone.trim() || undefined,
         company: company.trim() || undefined,
-      });
-      onProfileUpdated(res.user);
+      };
+      if (isBackendApiEnabled()) {
+        const updatedUser = await backendApi.updateProfile(payload);
+        onProfileUpdated(updatedUser);
+      } else {
+        const result = storage.updateProfile(payload);
+        if (!result.success) {
+          showToast('error', 'Update Failed', result.message);
+          return;
+        }
+        onProfileUpdated(result.user);
+      }
       setIsEditing(false);
       showToast('success', 'Profile Saved', 'Your user account details have been updated.');
-    } catch {
-      showToast('error', 'Update Failed', 'Could not update user profile.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update user profile.';
+      showToast('error', 'Update Failed', message);
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   return (

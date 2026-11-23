@@ -15,17 +15,28 @@ import { ToastProvider, useToast } from './components/Toast';
 import { storage, ContactsResponse } from './services/storage';
 import { Contact, User, SortConfig, FilterConfig } from './types';
 import { slf4j } from './services/logger';
+import { backendApi, getAuthToken, isBackendApiEnabled, setAuthToken } from './services/api';
+
+const EMPTY_CONTACTS_RESPONSE: ContactsResponse = {
+  contacts: [],
+  pagination: { page: 1, pageSize: 10, totalItems: 0, totalPages: 1 },
+  totalFiltered: 0,
+  totalAll: 0,
+  totalFavorites: 0,
+};
 
 function ContactAppContent() {
   const { showToast } = useToast();
 
   // Active user session
-  const [currentUser, setCurrentUser] = useState<User | null>(() => storage.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(() =>
+    isBackendApiEnabled() ? null : storage.getCurrentUser()
+  );
   const [activeView, setActiveView] = useState<'contacts' | 'profile'>('contacts');
 
   // Contact list state & parameters
   const [dataResponse, setDataResponse] = useState<ContactsResponse>(() =>
-    storage.getContacts(
+    isBackendApiEnabled() ? EMPTY_CONTACTS_RESPONSE : storage.getContacts(
       { searchQuery: '', category: 'All', isFavoriteOnly: false },
       { key: 'name', direction: 'asc' },
       1,
@@ -56,14 +67,70 @@ function ContactAppContent() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Load and refresh contacts
-  const refreshContacts = useCallback(() => {
-    const res = storage.getContacts(filterConfig, sortConfig, page, pageSize);
-    setDataResponse(res);
-  }, [filterConfig, sortConfig, page, pageSize]);
+  const refreshContacts = useCallback(async () => {
+    if (isBackendApiEnabled()) {
+      if (!getAuthToken()) {
+        setDataResponse(EMPTY_CONTACTS_RESPONSE);
+        return;
+      }
+      try {
+        const response = await backendApi.listContacts({
+          search: filterConfig.searchQuery,
+          category: filterConfig.category,
+          favoriteOnly: filterConfig.isFavoriteOnly,
+          page,
+          size: pageSize,
+          sortBy: sortConfig.key === 'name' ? 'lastName' : String(sortConfig.key),
+          sortDir: sortConfig.direction,
+        });
+        setDataResponse({
+          contacts: response.contacts,
+          pagination: {
+            page: response.page,
+            pageSize: response.pageSize,
+            totalItems: response.totalItems,
+            totalPages: response.totalPages,
+          },
+          totalFiltered: response.totalItems,
+          totalAll: response.totalAll,
+          totalFavorites: response.totalFavorites,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unable to load contacts.';
+        showToast('error', 'Contacts Unavailable', message);
+      }
+      return;
+    }
+    try {
+      setDataResponse(storage.getContacts(filterConfig, sortConfig, page, pageSize));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load contacts.';
+      showToast('error', 'Contacts Unavailable', message);
+    }
+  }, [filterConfig, sortConfig, page, pageSize, showToast]);
 
   useEffect(() => {
-    refreshContacts();
+    void refreshContacts();
   }, [refreshContacts]);
+
+  useEffect(() => {
+    if (!isBackendApiEnabled() || !getAuthToken()) return;
+    let active = true;
+    backendApi.getProfile()
+      .then((user) => {
+        if (active) setCurrentUser(user);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setAuthToken(null);
+        setCurrentUser(null);
+        const message = error instanceof Error ? error.message : 'Session expired. Please sign in again.';
+        showToast('error', 'Session Expired', message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [showToast]);
 
   // Handle Sort Change
   const handleSortChange = (key: SortConfig['key']) => {
@@ -82,27 +149,30 @@ function ContactAppContent() {
   };
 
   // Modal 2: Create Contact Handler
-  const handleCreateContact = (data: Omit<Contact, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+  const handleCreateContact = async (data: Omit<Contact, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
     try {
-      const created = storage.createContact(data);
-      refreshContacts();
+      const created = isBackendApiEnabled() ? await backendApi.createContact(data) : storage.createContact(data);
+      await refreshContacts();
       setIsCreateModalOpen(false);
       showToast(
         'success',
         'Contact Created',
         `${created.firstName} ${created.lastName} has been added to the directory.`
       );
-    } catch {
-      showToast('error', 'Error', 'Failed to save new contact entity.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save contact.';
+      showToast('error', 'Error', message);
     }
   };
 
   // Modal 1: Update Contact Handler
-  const handleUpdateContact = (data: Omit<Contact, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
+  const handleUpdateContact = async (data: Omit<Contact, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => {
     if (!targetContact) return;
     try {
-      const updated = storage.updateContact(targetContact.id, data);
-      refreshContacts();
+      const updated = isBackendApiEnabled()
+        ? await backendApi.updateContact(targetContact.id, data)
+        : storage.updateContact(targetContact.id, data);
+      await refreshContacts();
       setIsEditModalOpen(false);
       setTargetContact(updated);
       showToast(
@@ -110,8 +180,9 @@ function ContactAppContent() {
         'Contact Updated',
         `Details for ${updated.firstName} ${updated.lastName} saved successfully.`
       );
-    } catch {
-      showToast('error', 'Error', 'Failed to update contact entity.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update contact.';
+      showToast('error', 'Error', message);
     }
   };
 
@@ -119,40 +190,58 @@ function ContactAppContent() {
   const handleConfirmDelete = () => {
     setIsDeleting(true);
     setTimeout(() => {
-      try {
-        if (bulkDeleteIds.length > 0) {
-          const count = storage.bulkDelete(bulkDeleteIds);
-          setBulkDeleteIds([]);
-          setIsDeleteModalOpen(false);
-          refreshContacts();
-          showToast('success', 'Contacts Deleted', `Successfully purged ${count} contacts from database.`);
-        } else if (targetContact) {
-          const name = `${targetContact.firstName} ${targetContact.lastName}`;
-          storage.deleteContact(targetContact.id);
-          setIsDeleteModalOpen(false);
-          setIsDetailModalOpen(false);
-          setTargetContact(null);
-          refreshContacts();
-          showToast('success', 'Contact Deleted', `${name} has been removed.`);
+      void (async () => {
+        try {
+          if (bulkDeleteIds.length > 0) {
+            const count = isBackendApiEnabled()
+              ? (await backendApi.bulkDelete(bulkDeleteIds)).deletedCount
+              : storage.bulkDelete(bulkDeleteIds);
+            setBulkDeleteIds([]);
+            setIsDeleteModalOpen(false);
+            await refreshContacts();
+            showToast('success', 'Contacts Deleted', `Successfully purged ${count} contacts from database.`);
+          } else if (targetContact) {
+            const name = `${targetContact.firstName} ${targetContact.lastName}`;
+            if (isBackendApiEnabled()) await backendApi.deleteContact(targetContact.id);
+            else storage.deleteContact(targetContact.id);
+            setIsDeleteModalOpen(false);
+            setIsDetailModalOpen(false);
+            setTargetContact(null);
+            await refreshContacts();
+            showToast('success', 'Contact Deleted', `${name} has been removed.`);
+          }
+        } catch (error) {
+          const message = error instanceof Error
+            ? error.message
+            : 'Could not confirm the delete result. Refresh the directory before retrying.';
+          showToast('error', 'Delete Status Unconfirmed', message);
+        } finally {
+          setIsDeleting(false);
         }
-      } finally {
-        setIsDeleting(false);
-      }
+      })();
     }, 200);
   };
 
   // Toggle Favorite
-  const handleToggleFavorite = (id: string) => {
-    const isFav = storage.toggleFavorite(id);
-    refreshContacts();
-    if (targetContact && targetContact.id === id) {
-      setTargetContact((prev) => (prev ? { ...prev, isFavorite: isFav } : null));
+  const handleToggleFavorite = async (id: string) => {
+    try {
+      const isFav = isBackendApiEnabled()
+        ? (await backendApi.toggleFavorite(id)).isFavorite
+        : storage.toggleFavorite(id);
+      await refreshContacts();
+      if (targetContact && targetContact.id === id) {
+        setTargetContact((prev) => (prev ? { ...prev, isFavorite: isFav } : null));
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not update favorite status.';
+      showToast('error', 'Favorite Update Failed', message);
     }
   };
 
   // Auth Operations
   const handleLogout = () => {
-    storage.logout();
+    if (isBackendApiEnabled()) setAuthToken(null);
+    else storage.logout();
     setCurrentUser(null);
     setIsAuthModalOpen(true);
     showToast('info', 'Signed Out', 'Your active user session has ended.');
@@ -162,7 +251,7 @@ function ContactAppContent() {
     setCurrentUser(user);
     setIsAuthModalOpen(false);
     setActiveView('contacts');
-    refreshContacts();
+    void refreshContacts();
   };
 
   // If no user is logged in, show AuthModal

@@ -42,14 +42,14 @@ public class AuthServiceImpl implements AuthService {
     public AuthResponse register(RegisterRequest request) {
         String identifier = request.getIdentifier().trim();
         boolean isEmail = identifier.contains("@");
-        log.info("Processing user registration using {} identifier [{}]", isEmail ? "email" : "phone", identifier);
+        log.info("Processing user registration using {} identifier", isEmail ? "email" : "phone");
 
         if (isEmail && userRepository.existsByEmailIgnoreCase(identifier)) {
-            log.warn("Duplicate email registration attempt: [{}]", identifier);
+            log.warn("Duplicate email registration attempt");
             throw new DuplicateResourceException("An account with this email address already exists.");
         }
         if (!isEmail && userRepository.existsByPhone(identifier)) {
-            log.warn("Duplicate phone registration attempt: [{}]", identifier);
+            log.warn("Duplicate phone registration attempt");
             throw new DuplicateResourceException("An account with this phone number already exists.");
         }
 
@@ -77,14 +77,14 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthResponse login(LoginRequest request) {
         String identifier = request.getIdentifier().trim();
-        log.info("Authenticating user with identifier [{}]", identifier);
+        log.info("Authenticating user");
 
         Optional<User> userOpt = identifier.contains("@")
                 ? userRepository.findByEmailIgnoreCase(identifier)
                 : userRepository.findByPhone(identifier);
 
         User user = userOpt.orElseThrow(() -> {
-            log.warn("Login failed: no account found for [{}]", identifier);
+            log.warn("Login failed: no account found");
             return new InvalidCredentialsException("Invalid email/phone or password.");
         });
 

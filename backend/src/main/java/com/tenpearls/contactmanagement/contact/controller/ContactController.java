@@ -4,6 +4,10 @@ import com.tenpearls.contactmanagement.contact.dto.ContactRequest;
 import com.tenpearls.contactmanagement.contact.entity.Contact;
 import com.tenpearls.contactmanagement.contact.service.ContactService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import org.springframework.validation.annotation.Validated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -21,6 +25,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/contacts")
+@Validated
 public class ContactController {
 
     private static final Logger log = LoggerFactory.getLogger(ContactController.class);
@@ -48,7 +53,7 @@ public class ContactController {
             case "title", "company", "createdAt", "firstName", "lastName" -> sortBy;
             default -> "lastName";
         };
-        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), Sort.by(direction, safeSortField));
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.min(100, Math.max(1, size)), Sort.by(direction, safeSortField));
 
         Page<Contact> resultPage = contactService.getContacts(userId, search, category, favoriteOnly, pageable);
 
@@ -119,7 +124,9 @@ public class ContactController {
     @PostMapping("/bulk-delete")
     public ResponseEntity<Map<String, Integer>> bulkDelete(
             Authentication authentication,
-            @RequestBody List<String> ids) {
+            @NotNull
+            @Size(max = 100, message = "A maximum of 100 contact IDs can be deleted at once")
+            @RequestBody List<@NotBlank @Size(max = 64) String> ids) {
         String userId = authentication.getName();
         int deleted = contactService.bulkDelete(userId, ids);
         return ResponseEntity.ok(Map.of("deletedCount", deleted));

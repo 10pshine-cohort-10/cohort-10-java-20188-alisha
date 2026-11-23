@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { storage } from '../services/storage';
+import { backendApi, isBackendApiEnabled, setAuthToken } from '../services/api';
 import { User } from '../types';
 import { useToast } from './Toast';
 
@@ -34,7 +35,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loginIdentifier, setLoginIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [loginRemember, setLoginRemember] = useState(true);
 
   // Register state
   const [regType, setRegType] = useState<'email' | 'phone'>('email');
@@ -68,15 +68,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setIsSubmitting(true);
-    const res = await storage.login(loginIdentifier, loginPassword);
-    setIsSubmitting(false);
-
-    if (res.success && res.user) {
-      showToast('success', 'Authentication Successful', res.message);
-      onSuccess(res.user);
-    } else {
-      setErrors({ form: res.message });
-      showToast('error', 'Login Failed', res.message);
+    try {
+      if (isBackendApiEnabled()) {
+        const response = await backendApi.login({ identifier: loginIdentifier, password: loginPassword });
+        setAuthToken(response.token);
+        showToast('success', 'Authentication Successful', response.message);
+        onSuccess(response.user);
+      } else {
+        const response = await storage.login(loginIdentifier, loginPassword);
+        if (response.success && response.user) {
+          showToast('success', 'Authentication Successful', response.message);
+          onSuccess(response.user);
+        } else {
+          setErrors({ form: response.message });
+          showToast('error', 'Login Failed', response.message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Login failed.';
+      setErrors({ form: message });
+      showToast('error', 'Login Failed', message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -119,32 +132,51 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsSubmitting(true);
     const identifier = regType === 'email' ? regEmail.trim() : regPhone.trim();
-    const res = await storage.register({
-      fullName: regFullName.trim(),
-      identifier,
-      password: regPassword,
-      company: regCompany.trim(),
-    });
-    setIsSubmitting(false);
-
-    if (res.success && res.user) {
-      showToast('success', 'Account Registered', res.message);
-      onSuccess(res.user);
-    } else {
-      setErrors({ form: res.message });
-      showToast('error', 'Registration Failed', res.message);
+    try {
+      const payload = {
+        fullName: regFullName.trim(),
+        identifier,
+        password: regPassword,
+        company: regCompany.trim(),
+      };
+      if (isBackendApiEnabled()) {
+        const response = await backendApi.register(payload);
+        setAuthToken(response.token);
+        showToast('success', 'Account Registered', response.message);
+        onSuccess(response.user);
+      } else {
+        const response = await storage.register(payload);
+        if (response.success && response.user) {
+          showToast('success', 'Account Registered', response.message);
+          onSuccess(response.user);
+        } else {
+          setErrors({ form: response.message });
+          showToast('error', 'Registration Failed', response.message);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Registration failed.';
+      setErrors({ form: message });
+      showToast('error', 'Registration Failed', message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="auth-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto"
+    >
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden my-6">
         {/* Brand Banner */}
         <div className="bg-slate-900 text-white p-6 sm:p-7 text-center relative overflow-hidden">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-white/10 text-white mb-3 shadow-inner">
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
-          <h2 className="text-xl font-bold tracking-tight">ContactHub Enterprise</h2>
+          <h2 id="auth-modal-title" className="text-xl font-bold tracking-tight">ContactHub Enterprise</h2>
           <p className="text-xs text-slate-300 mt-1">
             Enterprise Directory & Contact Management System
           </p>
@@ -195,12 +227,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             /* Login Form */
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="login-identifier" className="block text-xs font-medium text-slate-700 mb-1">
                   Email Address or Phone Number
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    id="login-identifier"
                     type="text"
                     value={loginIdentifier}
                     onChange={(e) => {
@@ -220,11 +253,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-xs font-medium text-slate-700">Password</label>
+                  <label htmlFor="login-password" className="block text-xs font-medium text-slate-700">Password</label>
                 </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    id="login-password"
                     type={showLoginPassword ? 'text' : 'password'}
                     value={loginPassword}
                     onChange={(e) => {
@@ -249,18 +283,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center justify-between text-xs text-slate-600 pt-1">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={loginRemember}
-                    onChange={(e) => setLoginRemember(e.target.checked)}
-                    className="rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                  />
-                  <span>Remember this device</span>
-                </label>
-              </div>
-
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -275,7 +297,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <form onSubmit={handleRegister} className="space-y-3.5">
               {/* Registration Method Picker */}
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="register-full-name" className="block text-xs font-medium text-slate-700 mb-1">
                   Register Using
                 </label>
                 <div className="grid grid-cols-2 gap-2">
@@ -314,6 +336,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <div className="relative">
                   <UserIcon className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    id="register-full-name"
                     type="text"
                     value={regFullName}
                     onChange={(e) => setRegFullName(e.target.value)}
@@ -329,12 +352,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {/* Identifier based on selection */}
               {regType === 'email' ? (
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="register-email" className="block text-xs font-medium text-slate-700 mb-1">
                     Corporate Email Address <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
                     <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                     <input
+                      id="register-email"
                       type="email"
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
@@ -348,12 +372,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="register-phone" className="block text-xs font-medium text-slate-700 mb-1">
                     Mobile Phone Number <span className="text-rose-500">*</span>
                   </label>
                   <div className="relative">
                     <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                     <input
+                      id="register-phone"
                       type="tel"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}
@@ -369,12 +394,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Company (Optional) */}
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">
+                <label htmlFor="register-company" className="block text-xs font-medium text-slate-700 mb-1">
                   Company / Organization
                 </label>
                 <div className="relative">
                   <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                   <input
+                    id="register-company"
                     type="text"
                     value={regCompany}
                     onChange={(e) => setRegCompany(e.target.value)}
@@ -387,10 +413,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {/* Password */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="register-password" className="block text-xs font-medium text-slate-700 mb-1">
                     Password <span className="text-rose-500">*</span>
                   </label>
                   <input
+                    id="register-password"
                     type={showRegPassword ? 'text' : 'password'}
                     value={regPassword}
                     onChange={(e) => setRegPassword(e.target.value)}
@@ -403,10 +430,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                  <label htmlFor="register-confirm-password" className="block text-xs font-medium text-slate-700 mb-1">
                     Confirm Password <span className="text-rose-500">*</span>
                   </label>
                   <input
+                    id="register-confirm-password"
                     type={showRegPassword ? 'text' : 'password'}
                     value={regConfirmPassword}
                     onChange={(e) => setRegConfirmPassword(e.target.value)}
@@ -427,7 +455,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 >
                   {showRegPassword ? 'Hide Passwords' : 'Show Passwords'}
                 </button>
-                <span>Encrypted via BCrypt</span>
               </div>
 
               <button

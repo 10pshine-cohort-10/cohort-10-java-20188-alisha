@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Lock, Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { storage } from '../services/storage';
+import { backendApi, isBackendApiEnabled } from '../services/api';
 import { useToast } from './Toast';
 
 interface ChangePasswordModalProps {
@@ -61,19 +62,28 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({ isOpen
     }
 
     setIsSubmitting(true);
-    const result = await storage.changePassword(currentPassword, newPassword);
-
-    if (result.success) {
+    try {
+      if (isBackendApiEnabled()) {
+        await backendApi.changePassword({ currentPassword, newPassword });
+      } else {
+        const result = await storage.changePassword(currentPassword, newPassword);
+        if (!result.success) {
+          setErrors({ currentPassword: result.message });
+          return;
+        }
+      }
       showToast('success', 'Password Updated', 'Your security credentials have been refreshed.');
       onClose();
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setErrors({});
-    } else {
-      setErrors({ currentPassword: result.message });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update password.';
+      setErrors({ currentPassword: message });
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
   return (

@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { Contact, SortConfig, FilterConfig, PaginationConfig } from '../types';
 import { storage } from '../services/storage';
+import { backendApi, isBackendApiEnabled } from '../services/api';
 import { INITIAL_CONTACTS } from '../data/mockContacts';
 import { useToast } from './Toast';
 
@@ -52,6 +53,49 @@ interface ContactListProps {
   onToggleFavorite: (id: string) => void;
   onRefresh: () => void;
 }
+
+const parseCsvRows = (source: string): string[][] => {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    if (inQuotes) {
+      if (char === '"' && source[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"' && field.length === 0) {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\r' || char === '\n') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      if (char === '\r' && source[index + 1] === '\n') index++;
+    } else {
+      field += char;
+    }
+  }
+
+  if (inQuotes) throw new Error('CSV contains an unclosed quoted field.');
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+};
+
+const MAX_BACKEND_BULK_SELECTION = 100;
 
 export const ContactList: React.FC<ContactListProps> = ({
   contacts,
@@ -87,19 +131,30 @@ export const ContactList: React.FC<ContactListProps> = ({
       setSelectedIds([]);
     } else {
       const pageIds = contacts.map((c) => c.id);
-      setSelectedIds(Array.from(new Set([...selectedIds, ...pageIds])));
+      const nextSelection = Array.from(new Set([...selectedIds, ...pageIds]));
+      if (isBackendApiEnabled() && nextSelection.length > MAX_BACKEND_BULK_SELECTION) {
+        showToast('error', 'Selection Limit', 'Select no more than 100 contacts for a backend bulk action.');
+        return;
+      }
+      setSelectedIds(nextSelection);
     }
   };
 
   const handleToggleSelectRow = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.filter((item) => item !== id);
+      if (isBackendApiEnabled() && prev.length >= MAX_BACKEND_BULK_SELECTION) {
+        showToast('error', 'Selection Limit', 'Select no more than 100 contacts for a backend bulk action.');
+        return prev;
+      }
+      return [...prev, id];
+    });
   };
 
   const handleCopyText = async (text: string, id: string, label: string) => {
     try {
-      await navigator.clipboard?.writeText(text);
+      if (!navigator.clipboard) throw new Error('Clipboard API is unavailable.');
+      await navigator.clipboard.writeText(text);
       setCopiedId(id);
       showToast('info', 'Copied to clipboard', `${label}: ${text}`, 2000);
       setTimeout(() => setCopiedId(null), 2000);
@@ -109,22 +164,46 @@ export const ContactList: React.FC<ContactListProps> = ({
   };
 
   // Export functions
-  const handleExportCSV = () => {
-    const listToExport =
-      selectedIds.length > 0
-        ? contacts.filter((c) => selectedIds.includes(c.id))
-        : storage.getContacts({ searchQuery: '', category: 'All', isFavoriteOnly: false }, { key: 'name', direction: 'asc' }, 1, 1000).contacts;
+  const handleExportCSV = async () => {
+    try {
+      let allContacts: Contact[];
+      if (isBackendApiEnabled()) {
+        allContacts = [];
+        let currentPage = 1;
+        let totalPages = 1;
+        do {
+          const response = await backendApi.listContacts({
+            page: currentPage,
+            size: 100,
+            sortBy: 'lastName',
+            sortDir: 'asc',
+          });
+          allContacts.push(...response.contacts);
+          totalPages = response.totalPages;
+          currentPage++;
+        } while (currentPage <= totalPages);
+      } else {
+        allContacts = storage.getAllContacts();
+      }
 
-    const csvData = storage.exportToCSV(listToExport);
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `contacts_export_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    showToast('success', 'CSV Exported', `Exported ${listToExport.length} contacts.`);
+      const listToExport = selectedIds.length > 0
+        ? allContacts.filter((contact) => selectedIds.includes(contact.id))
+        : allContacts;
+      const csvData = storage.exportToCSV(listToExport);
+      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `contacts_export_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      showToast('success', 'CSV Exported', `Exported ${listToExport.length} contacts.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to export contacts.';
+      showToast('error', 'Export Failed', message);
+    }
   };
 
   // Import handler
@@ -135,21 +214,22 @@ export const ContactList: React.FC<ContactListProps> = ({
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const text = event.target?.result as string;
+        const result = event.target?.result;
+        if (typeof result !== 'string') throw new Error('The selected file could not be read as text.');
+        const text = result;
         if (file.name.endsWith('.json')) {
           const parsed = JSON.parse(text);
           const count = storage.importContacts(Array.isArray(parsed) ? parsed : [parsed]);
           showToast('success', 'Import Successful', `Imported ${count} contacts from JSON.`);
         } else {
-          // Parse simple CSV
-          const lines = text.split(/\r?\n/).filter(Boolean);
-          if (lines.length <= 1) {
+          const rows = parseCsvRows(text.replace(/^\uFEFF/, ''));
+          if (rows.length <= 1) {
             showToast('error', 'Import Failed', 'CSV file is empty or missing data rows.');
             return;
           }
           const importedContacts: Partial<Contact>[] = [];
-          for (let i = 1; i < lines.length; i++) {
-            const cols = lines[i].split(',').map((c) => c.replace(/^"|"$/g, '').trim());
+          for (let i = 1; i < rows.length; i++) {
+            const cols = rows[i].map((c) => c.trim());
             if (cols.length >= 2 && (cols[0] || cols[1])) {
               importedContacts.push({
                 firstName: cols[0] || 'Imported',
@@ -303,17 +383,17 @@ export const ContactList: React.FC<ContactListProps> = ({
           </button>
 
           {/* Import Contacts */}
-          <button
+          {!isBackendApiEnabled() && <button
             onClick={() => fileInputRef.current?.click()}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors"
             title="Import contacts from CSV or JSON file"
           >
             <Upload className="w-3.5 h-3.5 text-slate-500" />
             <span className="hidden sm:inline">Import</span>
-          </button>
+          </button>}
 
           {/* Reset Demo Data */}
-          <button
+          {!isBackendApiEnabled() && <button
             onClick={() => {
               if (!window.confirm(`Reset the directory to ${INITIAL_CONTACTS.length} default contacts? This replaces current contact data.`)) return;
               storage.resetToDefaults();
@@ -324,7 +404,7 @@ export const ContactList: React.FC<ContactListProps> = ({
             title="Reset directory to standard sample dataset"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-          </button>
+          </button>}
 
           {/* Add Contact Button */}
           <button

@@ -2,12 +2,15 @@ package com.tenpearls.contactmanagement.common.exception;
 
 import com.tenpearls.contactmanagement.common.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -75,6 +78,32 @@ public class GlobalExceptionHandler {
         );
         response.setValidationErrors(errors);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleMalformedRequestBody(
+            HttpMessageNotReadableException ex, HttpServletRequest request) {
+        log.warn("Malformed request body at [{}]", request.getRequestURI());
+        ApiErrorResponse response = new ApiErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Bad Request",
+                "The request body is malformed or contains invalid values.",
+                request.getRequestURI()
+        );
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler({HandlerMethodValidationException.class, ConstraintViolationException.class})
+    public ResponseEntity<ApiErrorResponse> handleMethodValidation(
+            Exception ex, HttpServletRequest request) {
+        log.warn("Request parameter validation failed at [{}]", request.getRequestURI());
+        ApiErrorResponse response = new ApiErrorResponse(
+                HttpStatus.BAD_REQUEST.value(),
+                "Validation Failed",
+                "One or more request parameters contain invalid values.",
+                request.getRequestURI()
+        );
+        return ResponseEntity.badRequest().body(response);
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
