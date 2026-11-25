@@ -7,12 +7,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
-import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.ErrorResponse;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -96,6 +102,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({HandlerMethodValidationException.class, ConstraintViolationException.class})
     public ResponseEntity<ApiErrorResponse> handleMethodValidation(
             Exception ex, HttpServletRequest request) {
+        if (ex instanceof HandlerMethodValidationException validationException
+                && validationException.isForReturnValue()) {
+            log.error("Controller return value validation failed at [{}]", request.getRequestURI(), ex);
+            ApiErrorResponse response = new ApiErrorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                    "Internal Server Error",
+                    "An unexpected error occurred while processing your request.",
+                    request.getRequestURI()
+            );
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+        }
+
         log.warn("Request parameter validation failed at [{}]", request.getRequestURI());
         ApiErrorResponse response = new ApiErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
@@ -113,10 +131,36 @@ public class GlobalExceptionHandler {
         ApiErrorResponse response = new ApiErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 "Bad Request",
-                ex.getMessage(),
+                "The request contains invalid values.",
                 request.getRequestURI()
         );
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler({
+            ServletRequestBindingException.class,
+            HttpRequestMethodNotSupportedException.class,
+            HttpMediaTypeNotSupportedException.class,
+            HttpMediaTypeNotAcceptableException.class,
+            NoHandlerFoundException.class
+    })
+    public ResponseEntity<ApiErrorResponse> handleMvcException(
+            Exception ex, HttpServletRequest request) {
+        if (!(ex instanceof ErrorResponse mvcError)) {
+            return handleGlobalException(ex, request);
+        }
+
+        log.warn("MVC request error at [{}]: {}", request.getRequestURI(), ex.getMessage());
+        int status = mvcError.getStatusCode().value();
+        ApiErrorResponse response = new ApiErrorResponse(
+                status,
+                "Request Error",
+                "The request could not be processed.",
+                request.getRequestURI()
+        );
+        return ResponseEntity.status(mvcError.getStatusCode())
+                .headers(mvcError.getHeaders())
+                .body(response);
     }
 
     @ExceptionHandler(Exception.class)
